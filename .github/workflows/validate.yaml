@@ -14,12 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: mikefarah/yq@v4
-        with:
-          cmd: yq eval '.' spec/flexibilling.yaml
-      - uses: mikefarah/yq@v4
-        with:
-          cmd: yq eval '.' spec/conformance.yaml
+      - name: Install yq
+        run: |
+          curl -fsSL https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 -o yq
+          chmod +x yq
+          sudo mv yq /usr/local/bin/yq
+      - name: Parse YAML contract files
+        run: |
+          yq eval '.' spec/flexibilling.yaml >/dev/null
+          yq eval '.' spec/conformance.yaml >/dev/null
       - name: Validate contract against JSON Schema
         run: |
           yq eval -o=json spec/flexibilling.yaml > /tmp/flexibilling.json
