@@ -1,0 +1,34 @@
+name: Validate contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mikefarah/yq@v4
+        with:
+          cmd: yq eval '.' spec/flexibilling.yaml
+      - uses: mikefarah/yq@v4
+        with:
+          cmd: yq eval '.' spec/conformance.yaml
+      - name: Validate contract against JSON Schema
+        run: |
+          yq eval -o=json spec/flexibilling.yaml > /tmp/flexibilling.json
+          npx --yes ajv-cli@5 validate -s schema/flexibilling.schema.json -d /tmp/flexibilling.json
+      - name: Check JSON Schema syntax
+        run: jq empty schema/flexibilling.schema.json
+      - name: Reject implementation source files
+        run: |
+          if find . -type f \( -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.rs' -o -name '*.go' \) -not -path './.git/*' | grep -q .; then
+            echo 'Implementation source files do not belong in the reference repository.'
+            exit 1
+          fi

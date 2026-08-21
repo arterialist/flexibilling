@@ -1,0 +1,143 @@
+contract: flexibilling
+contract_version: "1.0"
+vectors:
+  - id: rating-fixed
+    operation: rate
+    rule:
+      service: api_request
+      target_asset: units
+      metric_type: fixed
+      conversion_rate: "5"
+      priority: 1
+      is_active: true
+    usage:
+      customer_id: customer-1
+      service: api_request
+      variant: default
+    expected:
+      amount: "5"
+  - id: rating-quantity
+    operation: rate
+    rule:
+      service: api_request
+      target_asset: units
+      metric_type: quantity
+      conversion_rate: "2"
+      priority: 1
+      is_active: true
+    usage:
+      customer_id: customer-1
+      service: api_request
+      variant: default
+      quantity: "3"
+    expected:
+      amount: "6"
+  - id: rating-duration-metadata-wins
+    operation: rate
+    rule:
+      service: api_request
+      target_asset: units
+      metric_type: duration
+      conversion_rate: "0.5"
+      priority: 1
+      is_active: true
+    usage:
+      customer_id: customer-1
+      service: api_request
+      variant: default
+      duration_seconds: "60"
+      event_metadata:
+        duration_seconds: "180"
+    expected:
+      amount: "90"
+  - id: rating-units-fallback
+    operation: rate
+    rule:
+      service: api_request
+      target_asset: units
+      metric_type: units
+      conversion_rate: "0.001"
+      priority: 1
+      is_active: true
+    usage:
+      customer_id: customer-1
+      service: api_request
+      variant: default
+      input_units: 500
+      output_units: 200
+    expected:
+      amount: "0.7"
+  - id: waterfall-fallback-asset
+    operation: waterfall
+    rules:
+      - service: api_request
+        target_asset: units
+        metric_type: units
+        conversion_rate: "1"
+        priority: 10
+        is_active: true
+      - service: api_request
+        target_asset: prepaid_units
+        metric_type: units
+        conversion_rate: "1"
+        priority: 20
+        is_active: true
+    usage:
+      customer_id: customer-1
+      service: api_request
+      variant: default
+      units: 60
+    balances:
+      units: "0"
+      prepaid_units: "200"
+    expected:
+      asset: prepaid_units
+      amount: "60"
+  - id: waterfall-zero-usage
+    operation: waterfall
+    rules:
+      - service: api_request
+        target_asset: units
+        metric_type: units
+        conversion_rate: "1"
+        priority: 1
+        is_active: true
+    usage:
+      customer_id: customer-1
+      service: api_request
+      variant: default
+    balances:
+      units: "100"
+    expected:
+      error: no-billable-usage
+  - id: waterfall-insufficient-funds
+    operation: waterfall
+    rules:
+      - service: api_request
+        target_asset: units
+        metric_type: units
+        conversion_rate: "1"
+        priority: 1
+        is_active: true
+    usage:
+      customer_id: customer-1
+      service: api_request
+      variant: default
+      units: 100
+    balances:
+      units: "50"
+    expected:
+      error: insufficient-funds
+  - id: payment-idempotency
+    operation: fund_customer
+    products:
+      - external_product_id: plan-standard
+        asset_type: units
+        amount: "100"
+        strategy: top_up
+        is_active: true
+    payment_reference: payment-1
+    expected:
+      first_call: true
+      repeated_call: false
+      resulting_balance: "100"
