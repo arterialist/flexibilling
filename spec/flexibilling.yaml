@@ -1,0 +1,388 @@
+contract:
+  id: flexibilling
+  version: "1.0"
+  status: normative
+  description: >-
+    Provider-agnostic usage metering and balance billing. Implementations plug
+    persistence, cache, transaction, and framework concerns into the contract.
+  numeric_model:
+    amount:
+      representation: decimal-string
+      examples: ["0", "1", "0.001", "1000.50"]
+      scale: arbitrary
+      arithmetic: exact-decimal
+      negative_values: allowed-for-ledger-entries-only
+    quantity:
+      representation: decimal-string
+      arithmetic: exact-decimal
+    duration_seconds:
+      representation: decimal-string
+      arithmetic: exact-decimal
+    integer_counters:
+      representation: signed-integer
+
+identity:
+  customer_id:
+    type: scalar
+    representation: implementation-defined-stable-identifier
+  record_id:
+    type: scalar
+    representation: implementation-defined-stable-identifier
+  reference_id:
+    type: scalar
+    nullable: true
+
+enums:
+  metric_type:
+    - fixed
+    - quantity
+    - duration
+    - units
+  product_strategy:
+    - top_up
+    - monthly_quota
+  transaction_type:
+    - usage
+    - top_up
+    - monthly_grant
+    - expiration
+    - refund
+  billing_status:
+    - pending
+    - processed
+    - failed
+    - skipped
+
+records:
+  customer_balance:
+    fields:
+      customer_id: customer_id
+      asset_type: asset-name
+      amount: amount
+      id: record_id?
+  balance_transaction:
+    immutable: true
+    fields:
+      customer_id: customer_id
+      asset_type: asset-name
+      amount: amount
+      balance_after: amount
+      transaction_type: transaction-type
+      id: record_id?
+      source_usage_id: record_id?
+      payment_reference: string?
+      description: string?
+      created_at: timestamp?
+  billing_rule:
+    fields:
+      service: service-name
+      target_asset: asset-name
+      metric_type: metric-type
+      conversion_rate: amount
+      priority: signed-integer
+      filter_condition: metadata-object?
+      refund_service_type: service-name?
+      is_active: boolean
+      id: record_id?
+  billing_product:
+    fields:
+      external_product_id: string
+      asset_type: asset-name
+      amount: amount
+      strategy: product-strategy
+      description: string?
+      is_active: boolean
+      id: record_id?
+  usage_record:
+    fields:
+      customer_id: customer_id
+      service: service-name
+      variant: string
+      id: record_id?
+      reference_id: reference_id
+      quantity: quantity?
+      duration_seconds: duration-seconds?
+      units: signed-integer?
+      input_units: signed-integer?
+      output_units: signed-integer?
+      cached_units: signed-integer?
+      billing_status: billing-status
+      billing_error_message: string?
+      event_metadata: metadata-object?
+      created_at: timestamp?
+  billing_stats:
+    fields:
+      usage_count: signed-integer
+      quantity: number
+      spend: number
+      custom: map<string, number>
+  usage_summary:
+    fields:
+      service: service-name
+      variant: string
+      usage_count: signed-integer
+      total_quantity: number?
+      total_duration_seconds: number?
+      total_units: signed-integer?
+      total_input_units: signed-integer?
+      total_output_units: signed-integer?
+      total_cached_units: signed-integer?
+  activity_event:
+    fields:
+      time: timestamp
+      action: string
+      cost: string
+      result: string
+
+ports:
+  billing_repository:
+    purpose: persistence-port
+    methods:
+      get_active_rules:
+        input: [service-name]
+        output: list<billing_rule>
+      get_customer_balances:
+        input: [customer_id]
+        output: list<customer_balance>
+      upsert_balance:
+        input: [customer_id, asset-name, amount]
+        output: customer_balance-or-amount
+      decrement_balance:
+        input: [customer_id, asset-name, amount]
+        output: amount
+        atomic: true
+        failure: insufficient-funds
+      increment_balance:
+        input: [customer_id, asset-name, amount]
+        output: amount
+        atomic: true
+      create_transaction:
+        input: [balance-transaction]
+        output: balance_transaction
+        immutable: true
+      get_transaction_for_usage:
+        input: [reference_id, service-name, customer_id]
+        output: balance_transaction?
+      get_transaction_by_reference:
+        input: [payment-reference]
+        output: balance_transaction?
+      get_products_for_external_ids:
+        input: [list<string>]
+        output: list<billing_product>
+      get_pending_records:
+        input: [limit]
+        output: list<usage_record>
+      mark_record_processed:
+        input: [record_id]
+        output: void
+      mark_record_failed:
+        input: [record_id, error-message]
+        output: void
+      mark_record_skipped:
+        input: [record_id]
+        output: void
+  usage_repository:
+    purpose: usage-record-writer
+    methods:
+      create:
+        input: [usage_record]
+        output: usage_record?
+      get_by_customer:
+        input: [customer_id, skip, limit]
+        output: list<usage_record>
+      get_usage_summary:
+        input: [customer_id, "from-date?", "to-date?"]
+        output: list<usage_summary>
+      get_usage_records:
+        input: [customer_id, "from-date?", "to-date?", "service?", limit, offset]
+        output: [list<usage_record>, count]
+  billing_cache:
+    purpose: materialized-views
+    methods:
+      set_balances:
+        input: [customer_id, map<asset-name, amount>]
+        output: void
+      update_single_balance:
+        input: [customer_id, asset-name, amount]
+        output: void
+      get_balances:
+        input: [customer_id]
+        output: map<string, decimal-string>
+      can_transact:
+        input: [customer_id]
+        output: boolean
+      get_asset_amount:
+        input: [customer_id, asset-name]
+        output: amount?
+      delete_balances:
+        input: [customer_id]
+        output: void
+      increment_stats:
+        input: [customer_id, period, billing_stats]
+        output: void
+      get_stats:
+        input: [customer_id, period]
+        output: map<string, decimal-string>
+      push_feed_event:
+        input: [customer_id, activity-event]
+        output: void
+      get_feed:
+        input: [customer_id, limit]
+        output: list<activity-event>
+      delete_customer_cache:
+        input: [customer_id]
+        output: void
+  transaction_factory:
+    purpose: optional-host-transaction-boundary
+    methods:
+      open:
+        input: []
+        output: session
+      commit:
+        input: [session]
+        output: void
+      rollback:
+        input: [session]
+        output: void
+
+algorithms:
+  rating:
+    input: [billing_rule, usage_record]
+    output: amount
+    steps:
+      - when: metric_type == fixed
+        value: conversion_rate
+      - when: metric_type == quantity
+        value: quantity(usage_record) * conversion_rate
+      - when: metric_type == duration
+        value: duration_seconds(usage_record) * conversion_rate
+      - when: metric_type == units
+        value: billable_units(usage_record) * conversion_rate
+    extraction:
+      quantity: usage_record.quantity-or-zero
+      duration_seconds: event_metadata.duration_seconds-then-record.duration_seconds-then-zero
+      billable_units: usage_record.units-then-input_units-plus-output_units-then-zero
+    filter_condition:
+      matching: every-entry-must-match
+      key_format: dotted-path
+      missing_metadata: no-match
+  waterfall:
+    input: [list<billing_rule>, usage_record, map<asset-name, amount>]
+    output: waterfall-result
+    steps:
+      - if: no-rules
+        error: rule-not-found
+      - sort: priority-ascending
+      - skip: inactive-rules
+      - skip: filter-mismatch
+      - calculate: rating
+      - skip: cost-less-than-or-equal-to-zero
+      - select: first-rule-with-balance-greater-than-or-equal-to-cost
+      - if: no-positive-cost
+        error: no-billable-usage
+      - otherwise:
+        error: insufficient-funds
+  process_record:
+    input: [usage_record, billing_repository, billing_cache]
+    transaction: caller-owned
+    steps:
+      - load: active-rules-for-service
+      - load: customer-balances
+      - evaluate: waterfall
+      - atomic: decrement-selected-balance
+      - append: usage-ledger-transaction-with-negative-amount
+      - optionally: refund-original-usage-when-refund-service-matches
+      - mark: usage-record-processed
+      - materialize: balance-period-stats-and-success-feed-event
+    errors:
+      no-billable-usage: preserve-domain-error
+      insufficient-funds: preserve-domain-error
+      rule-not-found: preserve-domain-error
+      missing-record-id: configuration-error
+  fund_customer:
+    input: [customer_id, list<external_product_id>, payment_reference]
+    idempotency_key: payment_reference
+    steps:
+      - return-false: payment-reference-already-in-ledger
+      - load: active-products-matching-external-ids
+      - return-false: no-products-match
+      - for-each: product
+        top_up: increment-balance-and-append-top-up-transaction
+        monthly_quota: replace-balance-and-append-monthly-grant-transaction
+      - update: cache-balance-after-each-product
+      - return: true
+  charge:
+    input: [customer_id, asset-name, positive-amount]
+    steps:
+      - atomic: decrement-balance
+      - append: usage-transaction-with-negative-amount
+      - update: cache-balance-and-period-stats
+  refund:
+    input: [customer_id, asset-name, positive-amount]
+    steps:
+      - atomic: increment-balance
+      - append: refund-transaction-with-positive-amount
+      - update: cache-balance
+  usage_snapshot:
+    input: [customer_id, list<asset-name>, period, billing_cache]
+    steps:
+      - used: total_custom:asset:<asset-name>
+      - remaining: max(balance[asset-name], 0)
+      - total: used + remaining
+  balance_checks:
+    input: [customer_id, "list<asset-name>", billing_cache, "billing_repository?"]
+    steps:
+      - read: cached-balances
+      - if: cache-is-cold-and-repository-is-present
+        load: customer-balances-from-repository
+        materialize: cache-balances
+      - return: combined-selected-assets-greater-than-zero
+    failure: false-when-cache-is-cold-and-no-repository-is-present
+  gatekeeper:
+    input: [customer_id, billing_cache]
+    steps:
+      - require: cache-has-balances
+      - require: cache-can-transact
+      - otherwise:
+        error: gatekeeper-denied
+  usage_session:
+    input: [customer_id, service-name, variant, "reference_id?", usage_repository]
+    state:
+      metrics: quantity-duration-units-input-output-cached-events
+      metadata: arbitrary-object
+    steps:
+      - report: accumulate-non-empty-usage-metrics
+      - on_exit: write-one-pending-usage-record-when-metrics-are-non-empty
+      - on_exit: copy-accumulated-duration-to-event_metadata.duration_seconds
+      - on_exception: honor-write_on_exception-policy
+  worker:
+    input: [billing_service, billing_repository, batch_size]
+    steps:
+      - fetch: pending-records-up-to-batch-size
+      - process: each-record-through-process_record
+      - on: no-billable-usage
+        mark: skipped
+      - on: expected-billing-error
+        mark: failed
+      - on: unexpected-error
+        keep: pending-for-host-retry-policy
+      - return: fetched-processed-skipped-failed-retried-counts
+
+lifecycle:
+  usage_record:
+    pending:
+      process_success: processed
+      no_billable_usage: skipped
+      expected_billing_error: failed
+      unexpected_error: pending
+    processed: terminal
+    failed: retryable-by-host-policy
+    skipped: terminal
+
+invariants:
+  - ledger-transactions-are-append-only
+  - balance-deductions-and-ledger-writes-share-one-transaction
+  - payment-reference-grants-are-idempotent
+  - cache-failures-do-not-change-the-billing-decision
+  - rules-are-selected-in-ascending-priority-order
+  - filter-mismatch-is-not-insufficient-funds
