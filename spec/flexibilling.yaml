@@ -127,6 +127,12 @@ records:
       total_input_units: signed-integer?
       total_output_units: signed-integer?
       total_cached_units: signed-integer?
+  activity_event:
+    fields:
+      time: timestamp
+      action: string
+      cost: string
+      result: string
 
 ports:
   billing_repository:
@@ -226,6 +232,18 @@ ports:
       delete_customer_cache:
         input: [customer_id]
         output: void
+  transaction_factory:
+    purpose: optional-host-transaction-boundary
+    methods:
+      open:
+        input: []
+        output: session
+      commit:
+        input: [session]
+        output: void
+      rollback:
+        input: [session]
+        output: void
 
 algorithms:
   rating:
@@ -311,6 +329,44 @@ algorithms:
       - used: total_custom:asset:<asset-name>
       - remaining: max(balance[asset-name], 0)
       - total: used + remaining
+  balance_checks:
+    input: [customer_id, "list<asset-name>", billing_cache, "billing_repository?"]
+    steps:
+      - read: cached-balances
+      - if: cache-is-cold-and-repository-is-present
+        load: customer-balances-from-repository
+        materialize: cache-balances
+      - return: combined-selected-assets-greater-than-zero
+    failure: false-when-cache-is-cold-and-no-repository-is-present
+  gatekeeper:
+    input: [customer_id, billing_cache]
+    steps:
+      - require: cache-has-balances
+      - require: cache-can-transact
+      - otherwise:
+        error: gatekeeper-denied
+  usage_session:
+    input: [customer_id, service-name, variant, "reference_id?", usage_repository]
+    state:
+      metrics: quantity-duration-units-input-output-cached-events
+      metadata: arbitrary-object
+    steps:
+      - report: accumulate-non-empty-usage-metrics
+      - on_exit: write-one-pending-usage-record-when-metrics-are-non-empty
+      - on_exit: copy-accumulated-duration-to-event_metadata.duration_seconds
+      - on_exception: honor-write_on_exception-policy
+  worker:
+    input: [billing_service, billing_repository, batch_size]
+    steps:
+      - fetch: pending-records-up-to-batch-size
+      - process: each-record-through-process_record
+      - on: no-billable-usage
+        mark: skipped
+      - on: expected-billing-error
+        mark: failed
+      - on: unexpected-error
+        keep: pending-for-host-retry-policy
+      - return: fetched-processed-skipped-failed-retried-counts
 
 lifecycle:
   usage_record:

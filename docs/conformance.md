@@ -13,6 +13,9 @@ compatibility:
 - top-up and monthly-quota product strategies;
 - payment-reference idempotency;
 - pending, processed, failed, skipped, and retry behavior;
+- usage-session accumulation and exception-write policy;
+- cold-cache balance checks and gatekeeper denial;
+- worker result counts and queue transitions;
 - period snapshots using used plus remaining balance; and
 - preservation of application-defined service, asset, and metadata names.
 

@@ -7,9 +7,10 @@ behavior:
 2. `identity` defines the values that host systems may represent with their own
    identifier types.
 3. `enums` and `records` define the data exchanged across the billing boundary.
-4. `ports` define the persistence and materialized-view capabilities required by
-   the engine.
-5. `algorithms` define the decisions an implementation must reproduce.
+4. `ports` define the persistence, cache, and optional transaction-boundary
+   capabilities required by the engine.
+5. `algorithms` define the decisions an implementation must reproduce, including
+   rating, waterfalls, balance checks, usage sessions, workers, and snapshots.
 6. `lifecycle` and `invariants` define failure, retry, and consistency behavior.
 
 ## Extensibility
@@ -23,6 +24,11 @@ The contract intentionally leaves transactions, concurrency primitives, storage
 schemas, clocks, and framework middleware to the host runtime. Those concerns
 must preserve the transaction and idempotency invariants but do not belong in a
 language-neutral data description.
+
+The usage-session and worker algorithms are host-runtime independent. A
+language may expose them as an async context manager, callback, RAII guard,
+explicit begin/end calls, or another idiomatic lifecycle as long as it writes
+the same pending record and applies the same queue transitions.
 
 ## Decimal values
 

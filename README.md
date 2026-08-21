@@ -9,6 +9,7 @@ The contract is expressed in YAML and constrained by JSON Schema. It defines:
 - domain records, enum values, and canonical numeric representation;
 - persistence and cache ports;
 - rating, priority-waterfall, funding, charging, refund, and snapshot behavior;
+- balance checks, usage sessions, gatekeeper decisions, and worker transitions;
 - queue lifecycle states and idempotency requirements; and
 - executable conformance vectors for compatible implementations.
 

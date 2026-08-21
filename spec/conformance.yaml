@@ -141,3 +141,16 @@ vectors:
       first_call: true
       repeated_call: false
       resulting_balance: "100"
+  - id: snapshot-used-plus-remaining
+    operation: snapshot
+    period: 2026-08
+    assets: [units]
+    balances:
+      units: "40"
+    stats:
+      "total_custom:asset:units": "60"
+    expected:
+      units:
+        used: "60"
+        remaining: "40"
+        total: "100"
