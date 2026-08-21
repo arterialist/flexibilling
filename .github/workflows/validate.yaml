@@ -26,7 +26,7 @@ jobs:
       - name: Validate contract against JSON Schema
         run: |
           yq eval -o=json spec/flexibilling.yaml > /tmp/flexibilling.json
-          npx --yes ajv-cli@5 validate -s schema/flexibilling.schema.json -d /tmp/flexibilling.json
+          npx --yes ajv-cli@5 validate --spec=draft2020 -s schema/flexibilling.schema.json -d /tmp/flexibilling.json
       - name: Check JSON Schema syntax
         run: jq empty schema/flexibilling.schema.json
       - name: Reject implementation source files
